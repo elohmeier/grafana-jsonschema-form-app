@@ -2,7 +2,7 @@
 
 Frontend-only Grafana app plugin that renders editable JSON Schema forms with Grafana UI components.
 
-The app provides a form editor page at `/a/elohmeier-jsonschema-form-app/editor` with three JSON editors:
+The app provides a form editor page at `/a/g42-jsonschemaform-app/editor` with three JSON editors:
 
 - Schema
 - UI schema
@@ -30,7 +30,7 @@ Run Grafana with the plugin mounted:
 npm run server
 ```
 
-Then open `http://localhost:3000/a/elohmeier-jsonschema-form-app/editor`.
+Then open `http://localhost:3000/a/g42-jsonschemaform-app/editor`.
 
 ## Checks
 

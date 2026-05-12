@@ -215,7 +215,7 @@ jobs:
       - name: Docker logs
         if: ${{ always() && steps.run-tests.outcome == 'failure' }}
         run: |
-          docker logs elohmeier-jsonschema-form-app >& grafana-server.log
+          docker logs g42-jsonschemaform-app >& grafana-server.log
 
       - name: Stop grafana docker
         run: docker compose down

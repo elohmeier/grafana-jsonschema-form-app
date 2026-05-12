@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developers/plugins/plugin.schema.json",
   "type": "app",
   "name": "JSON Schema Form",
-  "id": "elohmeier-jsonschema-form-app",
+  "id": "g42-jsonschemaform-app",
   "info": {
     "keywords": ["app", "json-schema", "forms"],
     "description": "Build Grafana-styled forms from JSON Schema.",

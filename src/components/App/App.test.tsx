@@ -18,9 +18,9 @@ describe('Components/App', () => {
     jest.resetAllMocks();
 
     props = {
-      basename: 'a/elohmeier-jsonschema-form-app',
+      basename: 'a/g42-jsonschemaform-app',
       meta: {
-        id: 'elohmeier-jsonschema-form-app',
+        id: 'g42-jsonschemaform-app',
         name: 'JSON Schema Form',
         type: PluginType.app,
         enabled: true,

@@ -296,7 +296,7 @@ function SourceConfigEditor({ description, kind, onChange, title, value }: Sourc
             datasourceUid={value.datasourceUid}
             defaultRefId="A"
             label="List query"
-            description="Returns selectable rows. Required fields are id/title plus the JSON field when no detail query is configured."
+            description="Returns selectable rows. Required fields are id/title plus the content field when no detail query is configured."
             placeholder={'{\n  "refId": "A"\n}'}
             value={value.listQuery}
             onChange={(listQuery) => updateSource({ listQuery })}
@@ -306,7 +306,7 @@ function SourceConfigEditor({ description, kind, onChange, title, value }: Sourc
             datasourceUid={value.datasourceUid}
             defaultRefId="B"
             label="Detail query"
-            description={`Optional. Runs after selection and receives $${scopedIdName} as a scoped variable. If empty, the list row JSON field is used.`}
+            description={`Optional. Runs after selection and receives $${scopedIdName} as a scoped variable. If empty, the list row content field is used.`}
             placeholder={`{\n  "refId": "B"\n}`}
             value={value.detailQuery}
             onChange={(detailQuery) => updateSource({ detailQuery })}
@@ -319,7 +319,7 @@ function SourceConfigEditor({ description, kind, onChange, title, value }: Sourc
             <Field label="Title field">
               <Input value={value.titleField} onChange={onFieldChange('titleField')} />
             </Field>
-            <Field label="JSON field">
+            <Field label="Content field">
               <Input value={value.jsonField} onChange={onFieldChange('jsonField')} />
             </Field>
           </div>
@@ -398,7 +398,7 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
       <SourceConfigEditor
         kind="document"
         title="Document source"
-        description="Provides selectable JSON documents by ID. URL parameters can select only IDs returned by this query."
+        description="Provides selectable JSON or YAML documents by ID. URL parameters can select only IDs returned by this query."
         value={draftConfig.documentSource}
         onChange={updateDocumentSource}
       />
@@ -406,7 +406,7 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
       <SourceConfigEditor
         kind="schema"
         title="Schema source"
-        description="Provides selectable JSON schemas by ID. Arbitrary schema URLs are not accepted."
+        description="Provides selectable JSON or YAML schemas by ID. Arbitrary schema URLs are not accepted."
         value={draftConfig.schemaSource}
         onChange={updateSchemaSource}
       />

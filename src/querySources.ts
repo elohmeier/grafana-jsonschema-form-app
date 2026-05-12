@@ -12,6 +12,7 @@ import { DataQuery } from '@grafana/schema';
 import { isObservable, lastValueFrom } from 'rxjs';
 
 import { NormalizedQueryBackedSourceConfig, QuerySourceKind } from './appConfig';
+import { parseDocument } from './documentFormat';
 
 export interface QuerySourceRow {
   id: string;
@@ -55,7 +56,7 @@ export async function resolveSourceJson(
       throw new Error(`The selected ${kind} row does not include field "${source.jsonField}".`);
     }
 
-    return parseJsonValue(row.jsonValue, kind);
+    return parseDocumentValue(row.jsonValue, kind);
   }
 
   if (!source.datasourceUid) {
@@ -65,7 +66,7 @@ export async function resolveSourceJson(
   const response = await runConfiguredQuery(source.datasourceUid, source.detailQuery, kind, getSelectionScopedVars(kind, row));
   const value = extractFirstJsonValue(response, source);
 
-  return parseJsonValue(value, kind);
+  return parseDocumentValue(value, kind);
 }
 
 export function extractRows(
@@ -261,13 +262,13 @@ function extractJsonValueFromFrame(frame: DataQueryResponseData, jsonFieldName: 
   return undefined;
 }
 
-function parseJsonValue(value: unknown, kind: QuerySourceKind): unknown {
+function parseDocumentValue(value: unknown, kind: QuerySourceKind): unknown {
   if (typeof value === 'string') {
     try {
-      return JSON.parse(value);
+      return parseDocument(value, 'auto');
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Invalid JSON';
-      throw new Error(`The selected ${kind} contains invalid JSON: ${message}`);
+      const message = err instanceof Error ? err.message : 'Invalid JSON/YAML';
+      throw new Error(`The selected ${kind} contains invalid JSON/YAML: ${message}`);
     }
   }
 
@@ -275,7 +276,7 @@ function parseJsonValue(value: unknown, kind: QuerySourceKind): unknown {
     return value;
   }
 
-  throw new Error(`The selected ${kind} must be JSON text or a JSON object.`);
+  throw new Error(`The selected ${kind} must be JSON/YAML text or an object.`);
 }
 
 function isDataFrameLike(frame: DataQueryResponseData): frame is DataFrame {

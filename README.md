@@ -2,7 +2,7 @@
 
 Frontend-only Grafana app plugin that renders editable JSON Schema forms with Grafana UI components.
 
-The app provides a form editor page at `/a/g42-jsonschemaform-app/editor` with three JSON editors:
+The app provides a form editor page at `/a/g42-jsonschemaform-app/editor` with three JSON/YAML editors:
 
 - Schema
 - UI schema
@@ -12,11 +12,11 @@ The preview uses `@rjsf/core` with an AJV 8 validator and a custom RJSF theme ba
 
 ## Query-backed documents and schemas
 
-The app configuration page can optionally define query-backed sources for selectable JSON documents and JSON schemas.
+The app configuration page can optionally define query-backed sources for selectable JSON/YAML documents and schemas.
 Each source uses an existing Grafana datasource and renders that datasource's native query editor when available:
 
-- List query: returns rows with an ID, title, and optionally JSON text.
-- Detail query: optional query run after selection. It receives `$documentId` or `$schemaId` as a scoped variable and returns the configured JSON field.
+- List query: returns rows with an ID, title, and optionally JSON/YAML text or an object value.
+- Detail query: optional query run after selection. It receives `$documentId` or `$schemaId` as a scoped variable and returns the configured content field.
 
 If a datasource does not expose a native query editor, the configuration page falls back to editing the query target as JSON.
 
@@ -59,4 +59,4 @@ npm run test:ci
 npm run build
 ```
 
-The production build currently emits one vendor chunk size warning because the app bundles the JSON editor and RJSF dependencies.
+The production build currently emits one vendor chunk size warning because the app bundles the code editor, YAML parser, and RJSF dependencies.

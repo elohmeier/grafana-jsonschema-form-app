@@ -15,6 +15,7 @@ import {
   normalizeAppConfig,
 } from '../appConfig';
 import { testIds } from '../components/testIds';
+import { DocumentFormat, getDocumentFormatLabel, parseDocument, stringifyDocument } from '../documentFormat';
 import { QuerySourceRow, loadSourceRows, resolveSourceJson } from '../querySources';
 import GrafanaJsonSchemaForm from '../rjsf/GrafanaTheme';
 
@@ -653,20 +654,18 @@ const sampleFormData = {
   },
 };
 
-function toJson(value: unknown) {
-  return JSON.stringify(value, null, 2);
-}
-
-type JsonEditorPanelProps = {
+type DocumentEditorPanelProps = {
   'data-testid': string;
+  format: DocumentFormat;
   title: string;
   value: unknown;
   onValidChange: (value: any) => void;
 };
 
-function JsonEditorPanel({ 'data-testid': dataTestId, title, value, onValidChange }: JsonEditorPanelProps) {
+function DocumentEditorPanel({ 'data-testid': dataTestId, format, title, value, onValidChange }: DocumentEditorPanelProps) {
   const styles = useStyles2(getStyles);
-  const serializedValue = useMemo(() => toJson(value), [value]);
+  const formatLabel = getDocumentFormatLabel(format);
+  const serializedValue = useMemo(() => stringifyDocument(value, format), [format, value]);
   const [draftState, setDraftState] = useState({
     source: serializedValue,
     draft: serializedValue,
@@ -680,14 +679,14 @@ function JsonEditorPanel({ 'data-testid': dataTestId, title, value, onValidChang
       let error: string | null = null;
 
       try {
-        onValidChange(JSON.parse(nextValue));
+        onValidChange(parseDocument(nextValue, format));
       } catch (err) {
-        error = err instanceof Error ? err.message : 'Invalid JSON';
+        error = err instanceof Error ? err.message : `Invalid ${formatLabel}`;
       }
 
       setDraftState({ source: serializedValue, draft: nextValue, error });
     },
-    [onValidChange, serializedValue]
+    [format, formatLabel, onValidChange, serializedValue]
   );
 
   return (
@@ -698,7 +697,7 @@ function JsonEditorPanel({ 'data-testid': dataTestId, title, value, onValidChang
       </div>
       <CodeEditor
         value={draft}
-        language="json"
+        language={format}
         height="260px"
         width="100%"
         showLineNumbers
@@ -710,6 +709,39 @@ function JsonEditorPanel({ 'data-testid': dataTestId, title, value, onValidChang
         }}
       />
     </section>
+  );
+}
+
+type FormatToggleProps = {
+  onChange: (format: DocumentFormat) => void;
+  value: DocumentFormat;
+};
+
+function FormatToggle({ onChange, value }: FormatToggleProps) {
+  const styles = useStyles2(getStyles);
+  const formats: DocumentFormat[] = ['json', 'yaml'];
+
+  return (
+    <Stack gap={0.5} alignItems="center">
+      <span className={styles.formatLabel}>Format</span>
+      {formats.map((format) => {
+        const selected = format === value;
+
+        return (
+          <Button
+            key={format}
+            type="button"
+            size="sm"
+            variant={selected ? 'primary' : 'secondary'}
+            fill={selected ? 'solid' : 'outline'}
+            aria-pressed={selected}
+            onClick={() => onChange(format)}
+          >
+            {getDocumentFormatLabel(format)}
+          </Button>
+        );
+      })}
+    </Stack>
   );
 }
 
@@ -760,10 +792,11 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const documentParam = searchParams.get(DOCUMENT_ID_PARAM) ?? undefined;
   const schemaParam = searchParams.get(SCHEMA_ID_PARAM) ?? undefined;
+  const [documentFormat, setDocumentFormat] = useState<DocumentFormat>('json');
   const [schema, setSchema] = useState<RJSFSchema>(sampleSchema);
   const [uiSchema, setUiSchema] = useState<UiSchema>(sampleUiSchema);
   const [formData, setFormData] = useState<any>(sampleFormData);
-  const [lastSubmit, setLastSubmit] = useState<string | null>(null);
+  const [lastSubmit, setLastSubmit] = useState<{ formData: unknown } | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   const [documentRowsState, setDocumentRowsState] = useState<SourceRowsState>(initialSourceRowsState);
   const [schemaRowsState, setSchemaRowsState] = useState<SourceRowsState>(initialSourceRowsState);
@@ -1053,6 +1086,7 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
       <div className={styles.header}>
         <h1 className={styles.title}>JSON Schema Form</h1>
         <Stack gap={1}>
+          <FormatToggle value={documentFormat} onChange={setDocumentFormat} />
           {hasSourceControls && (
             <Button
               type="button"
@@ -1123,19 +1157,22 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
 
       <div className={styles.workspace}>
         <div className={styles.editors}>
-          <JsonEditorPanel
+          <DocumentEditorPanel
+            format={documentFormat}
             title="Schema"
             value={schema}
             onValidChange={setSchema}
             data-testid={testIds.editor.schemaEditor}
           />
-          <JsonEditorPanel
+          <DocumentEditorPanel
+            format={documentFormat}
             title="UI schema"
             value={uiSchema}
             onValidChange={setUiSchema}
             data-testid={testIds.editor.uiSchemaEditor}
           />
-          <JsonEditorPanel
+          <DocumentEditorPanel
+            format={documentFormat}
             title="Form data"
             value={formData}
             onValidChange={setFormData}
@@ -1148,7 +1185,11 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
             <h2 className={styles.panelTitle}>Preview</h2>
           </div>
           <Stack direction="column" gap={2}>
-            {lastSubmit && <Alert title="Submitted" severity="success">{lastSubmit}</Alert>}
+            {lastSubmit && (
+              <Alert title="Submitted" severity="success">
+                <pre className={styles.submitOutput}>{stringifyDocument(lastSubmit.formData, documentFormat)}</pre>
+              </Alert>
+            )}
             <GrafanaJsonSchemaForm
               schema={schema}
               uiSchema={uiSchema}
@@ -1157,7 +1198,7 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
               liveValidate
               showErrorList="top"
               onChange={onFormChange}
-              onSubmit={(event) => setLastSubmit(toJson(event.formData))}
+              onSubmit={(event) => setLastSubmit({ formData: event.formData })}
             />
           </Stack>
         </section>
@@ -1177,7 +1218,13 @@ const getStyles = (theme: GrafanaTheme2) => ({
   header: css({
     alignItems: 'center',
     display: 'flex',
+    gap: theme.spacing(2),
     justifyContent: 'space-between',
+
+    [theme.breakpoints.down('sm')]: {
+      alignItems: 'flex-start',
+      flexDirection: 'column',
+    },
   }),
   title: css({
     color: theme.colors.text.primary,
@@ -1185,6 +1232,11 @@ const getStyles = (theme: GrafanaTheme2) => ({
     fontWeight: theme.typography.fontWeightMedium,
     lineHeight: 1.2,
     margin: 0,
+  }),
+  formatLabel: css({
+    color: theme.colors.text.secondary,
+    fontSize: theme.typography.bodySmall.fontSize,
+    fontWeight: theme.typography.fontWeightMedium,
   }),
   sourceControls: css({
     background: theme.colors.background.primary,
@@ -1257,5 +1309,11 @@ const getStyles = (theme: GrafanaTheme2) => ({
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  }),
+  submitOutput: css({
+    margin: 0,
+    overflowX: 'auto',
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
   }),
 });

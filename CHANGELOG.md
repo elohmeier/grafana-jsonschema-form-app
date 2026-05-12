@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/elohmeier/grafana-jsonschema-form-app/compare/v1.0.1...v1.1.0) (2026-05-12)
+
+
+### Features
+
+* query docs/schemas ([18da864](https://github.com/elohmeier/grafana-jsonschema-form-app/commit/18da8644d11762e9bd9c0d418be2e1b05f53f6a5))
+
 ## [1.0.1](https://github.com/elohmeier/grafana-jsonschema-form-app/compare/v1.0.0...v1.0.1) (2026-05-12)
 
 

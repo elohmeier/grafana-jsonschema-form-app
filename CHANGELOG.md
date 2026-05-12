@@ -1,3 +1,10 @@
+# [1.2.0](https://github.com/elohmeier/grafana-jsonschema-form-app/compare/v1.1.0...v1.2.0) (2026-05-12)
+
+
+### Features
+
+* add YAML document support ([336d1b7](https://github.com/elohmeier/grafana-jsonschema-form-app/commit/336d1b7b8da1feb837ee214768db7bd348c91373))
+
 # [1.1.0](https://github.com/elohmeier/grafana-jsonschema-form-app/compare/v1.0.1...v1.1.0) (2026-05-12)
 
 

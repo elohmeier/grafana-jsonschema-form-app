@@ -1,12 +1,21 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { css } from '@emotion/css';
 import { GrafanaTheme2 } from '@grafana/data';
-import { Alert, Button, CodeEditor, Stack, useStyles2 } from '@grafana/ui';
+import { Alert, Button, CodeEditor, Combobox, Field, Stack, useStyles2, type ComboboxOption } from '@grafana/ui';
 import { IChangeEvent } from '@rjsf/core';
 import { RJSFSchema, UiSchema } from '@rjsf/utils';
 import validator from '@rjsf/validator-ajv8';
+import { useSearchParams } from 'react-router-dom';
 
+import {
+  DOCUMENT_ID_PARAM,
+  JsonSchemaFormAppConfig,
+  NormalizedQueryBackedSourceConfig,
+  SCHEMA_ID_PARAM,
+  normalizeAppConfig,
+} from '../appConfig';
 import { testIds } from '../components/testIds';
+import { QuerySourceRow, loadSourceRows, resolveSourceJson } from '../querySources';
 import GrafanaJsonSchemaForm from '../rjsf/GrafanaTheme';
 
 const sampleSchema: RJSFSchema = {
@@ -704,33 +713,413 @@ function JsonEditorPanel({ 'data-testid': dataTestId, title, value, onValidChang
   );
 }
 
-export default function FormEditorPage() {
+type FormEditorPageProps = {
+  config?: JsonSchemaFormAppConfig;
+};
+
+type SourceRowsState = {
+  error: string | null;
+  loaded: boolean;
+  loading: boolean;
+  rows: QuerySourceRow[];
+};
+
+const initialSourceRowsState: SourceRowsState = {
+  error: null,
+  loaded: false,
+  loading: false,
+  rows: [],
+};
+
+function toSelectOptions(rows: QuerySourceRow[]): Array<ComboboxOption<string>> {
+  return rows.map((row) => ({
+    label: row.title,
+    value: row.id,
+  }));
+}
+
+function toRowMap(rows: QuerySourceRow[]) {
+  return new Map(rows.map((row) => [row.id, row]));
+}
+
+function getErrorMessage(err: unknown) {
+  return err instanceof Error ? err.message : 'Unexpected error';
+}
+
+function getSelectedOption(options: Array<ComboboxOption<string>>, value: string | undefined) {
+  return options.find((option) => option.value === value) ?? null;
+}
+
+function isConfiguredSource(source: NormalizedQueryBackedSourceConfig) {
+  return Boolean(source.enabled && source.datasourceUid && source.listQuery);
+}
+
+export default function FormEditorPage({ config }: FormEditorPageProps) {
   const styles = useStyles2(getStyles);
+  const appConfig = useMemo(() => normalizeAppConfig(config), [config]);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const documentParam = searchParams.get(DOCUMENT_ID_PARAM) ?? undefined;
+  const schemaParam = searchParams.get(SCHEMA_ID_PARAM) ?? undefined;
   const [schema, setSchema] = useState<RJSFSchema>(sampleSchema);
   const [uiSchema, setUiSchema] = useState<UiSchema>(sampleUiSchema);
   const [formData, setFormData] = useState<any>(sampleFormData);
   const [lastSubmit, setLastSubmit] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  const [documentRowsState, setDocumentRowsState] = useState<SourceRowsState>(initialSourceRowsState);
+  const [schemaRowsState, setSchemaRowsState] = useState<SourceRowsState>(initialSourceRowsState);
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string>();
+  const [selectedSchemaId, setSelectedSchemaId] = useState<string>();
+  const [documentDetailError, setDocumentDetailError] = useState<string | null>(null);
+  const [schemaDetailError, setSchemaDetailError] = useState<string | null>(null);
+  const [isDocumentLoading, setIsDocumentLoading] = useState(false);
+  const [isSchemaLoading, setIsSchemaLoading] = useState(false);
+  const documentOptions = useMemo(() => toSelectOptions(documentRowsState.rows), [documentRowsState.rows]);
+  const schemaOptions = useMemo(() => toSelectOptions(schemaRowsState.rows), [schemaRowsState.rows]);
+  const documentRowMap = useMemo(() => toRowMap(documentRowsState.rows), [documentRowsState.rows]);
+  const schemaRowMap = useMemo(() => toRowMap(schemaRowsState.rows), [schemaRowsState.rows]);
+  const hasSourceControls = appConfig.documentSource.enabled || appConfig.schemaSource.enabled;
+  const documentSourceConfigError =
+    appConfig.documentSource.enabled && !isConfiguredSource(appConfig.documentSource)
+      ? 'Document source is enabled but is missing a data source or list query.'
+      : null;
+  const schemaSourceConfigError =
+    appConfig.schemaSource.enabled && !isConfiguredSource(appConfig.schemaSource)
+      ? 'Schema source is enabled but is missing a data source or list query.'
+      : null;
+  const invalidDocumentParam =
+    documentParam && documentRowsState.loaded && !documentRowsState.loading && !documentRowMap.has(documentParam)
+      ? `Document "${documentParam}" was not returned by the configured query.`
+      : null;
+  const invalidSchemaParam =
+    schemaParam && schemaRowsState.loaded && !schemaRowsState.loading && !schemaRowMap.has(schemaParam)
+      ? `Schema "${schemaParam}" was not returned by the configured query.`
+      : null;
+
+  const setSourceParam = useCallback(
+    (key: string, value: string | undefined) => {
+      const nextParams = new URLSearchParams(searchParams);
+
+      if (value) {
+        nextParams.set(key, value);
+      } else {
+        nextParams.delete(key);
+      }
+
+      setSearchParams(nextParams, { replace: true });
+    },
+    [searchParams, setSearchParams]
+  );
+
+  const clearSourceParams = useCallback(() => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete(DOCUMENT_ID_PARAM);
+    nextParams.delete(SCHEMA_ID_PARAM);
+    setSearchParams(nextParams, { replace: true });
+  }, [searchParams, setSearchParams]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!isConfiguredSource(appConfig.documentSource)) {
+      Promise.resolve().then(() => {
+        if (active) {
+          setDocumentRowsState({ ...initialSourceRowsState, loaded: true });
+        }
+      });
+      return () => {
+        active = false;
+      };
+    }
+
+    Promise.resolve()
+      .then(() => {
+        if (active) {
+          setDocumentRowsState((current) => ({ ...current, error: null, loading: true }));
+        }
+
+        return loadSourceRows(appConfig.documentSource, 'document');
+      })
+      .then((rows) => {
+        if (active) {
+          setDocumentRowsState({ error: null, loaded: true, loading: false, rows });
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setDocumentRowsState({ error: getErrorMessage(err), loaded: true, loading: false, rows: [] });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [appConfig.documentSource, reloadToken]);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!isConfiguredSource(appConfig.schemaSource)) {
+      Promise.resolve().then(() => {
+        if (active) {
+          setSchemaRowsState({ ...initialSourceRowsState, loaded: true });
+        }
+      });
+      return () => {
+        active = false;
+      };
+    }
+
+    Promise.resolve()
+      .then(() => {
+        if (active) {
+          setSchemaRowsState((current) => ({ ...current, error: null, loading: true }));
+        }
+
+        return loadSourceRows(appConfig.schemaSource, 'schema');
+      })
+      .then((rows) => {
+        if (active) {
+          setSchemaRowsState({ error: null, loaded: true, loading: false, rows });
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setSchemaRowsState({ error: getErrorMessage(err), loaded: true, loading: false, rows: [] });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [appConfig.schemaSource, reloadToken]);
 
   const onFormChange = useCallback(({ formData }: IChangeEvent) => {
     setFormData(formData);
     setLastSubmit(null);
-  }, []);
+  }, [setFormData, setLastSubmit]);
+
+  const selectDocument = useCallback(
+    async (id: string, updateUrl = true) => {
+      const row = documentRowMap.get(id);
+
+      if (!row) {
+        setDocumentDetailError(`Document "${id}" was not returned by the configured query.`);
+        return;
+      }
+
+      setSelectedDocumentId(id);
+      setDocumentDetailError(null);
+      setIsDocumentLoading(true);
+
+      if (updateUrl) {
+        setSourceParam(DOCUMENT_ID_PARAM, id);
+      }
+
+      try {
+        setFormData(await resolveSourceJson(appConfig.documentSource, 'document', row));
+        setLastSubmit(null);
+      } catch (err) {
+        setDocumentDetailError(getErrorMessage(err));
+      } finally {
+        setIsDocumentLoading(false);
+      }
+    },
+    [
+      appConfig.documentSource,
+      documentRowMap,
+      setDocumentDetailError,
+      setFormData,
+      setIsDocumentLoading,
+      setLastSubmit,
+      setSelectedDocumentId,
+      setSourceParam,
+    ]
+  );
+
+  const selectSchema = useCallback(
+    async (id: string, updateUrl = true) => {
+      const row = schemaRowMap.get(id);
+
+      if (!row) {
+        setSchemaDetailError(`Schema "${id}" was not returned by the configured query.`);
+        return;
+      }
+
+      setSelectedSchemaId(id);
+      setSchemaDetailError(null);
+      setIsSchemaLoading(true);
+
+      if (updateUrl) {
+        setSourceParam(SCHEMA_ID_PARAM, id);
+      }
+
+      try {
+        const nextSchema = await resolveSourceJson(appConfig.schemaSource, 'schema', row);
+
+        if (!nextSchema || typeof nextSchema !== 'object' || Array.isArray(nextSchema)) {
+          throw new Error('The selected schema must be a JSON object.');
+        }
+
+        setSchema(nextSchema as RJSFSchema);
+        setLastSubmit(null);
+      } catch (err) {
+        setSchemaDetailError(getErrorMessage(err));
+      } finally {
+        setIsSchemaLoading(false);
+      }
+    },
+    [
+      appConfig.schemaSource,
+      schemaRowMap,
+      setIsSchemaLoading,
+      setLastSubmit,
+      setSchema,
+      setSchemaDetailError,
+      setSelectedSchemaId,
+      setSourceParam,
+    ]
+  );
+
+  useEffect(() => {
+    if (!documentParam || !documentRowsState.loaded || documentRowsState.loading) {
+      return;
+    }
+
+    if (selectedDocumentId === documentParam) {
+      return;
+    }
+
+    if (!documentRowMap.has(documentParam)) {
+      return;
+    }
+
+    Promise.resolve().then(() => selectDocument(documentParam, false));
+  }, [
+    documentParam,
+    documentRowMap,
+    documentRowsState.loaded,
+    documentRowsState.loading,
+    selectDocument,
+    selectedDocumentId,
+  ]);
+
+  useEffect(() => {
+    if (!schemaParam || !schemaRowsState.loaded || schemaRowsState.loading) {
+      return;
+    }
+
+    if (selectedSchemaId === schemaParam) {
+      return;
+    }
+
+    if (!schemaRowMap.has(schemaParam)) {
+      return;
+    }
+
+    Promise.resolve().then(() => selectSchema(schemaParam, false));
+  }, [
+    schemaParam,
+    schemaRowMap,
+    schemaRowsState.loaded,
+    schemaRowsState.loading,
+    selectSchema,
+    selectedSchemaId,
+  ]);
 
   const reset = useCallback(() => {
     setSchema(sampleSchema);
     setUiSchema(sampleUiSchema);
     setFormData(sampleFormData);
     setLastSubmit(null);
-  }, []);
+    setSelectedDocumentId(undefined);
+    setSelectedSchemaId(undefined);
+    setDocumentDetailError(null);
+    setSchemaDetailError(null);
+    clearSourceParams();
+  }, [
+    clearSourceParams,
+    setDocumentDetailError,
+    setFormData,
+    setLastSubmit,
+    setSchema,
+    setSchemaDetailError,
+    setSelectedDocumentId,
+    setSelectedSchemaId,
+    setUiSchema,
+  ]);
 
   return (
     <div className={styles.page} data-testid={testIds.editor.container}>
       <div className={styles.header}>
         <h1 className={styles.title}>JSON Schema Form</h1>
-        <Button type="button" variant="secondary" fill="outline" icon="history" onClick={reset}>
-          Reset
-        </Button>
+        <Stack gap={1}>
+          {hasSourceControls && (
+            <Button
+              type="button"
+              variant="secondary"
+              fill="outline"
+              icon="sync"
+              onClick={() => setReloadToken((current) => current + 1)}
+            >
+              Refresh
+            </Button>
+          )}
+          <Button type="button" variant="secondary" fill="outline" icon="history" onClick={reset}>
+            Reset
+          </Button>
+        </Stack>
       </div>
+
+      {hasSourceControls && (
+        <section className={styles.sourceControls}>
+          <div className={styles.sourceGrid}>
+            {appConfig.schemaSource.enabled && (
+              <Field label="Schema" description="Select a schema ID returned by the configured query.">
+                <Combobox
+                  loading={schemaRowsState.loading || isSchemaLoading}
+                  disabled={!schemaOptions.length || Boolean(schemaRowsState.error)}
+                  options={schemaOptions}
+                  placeholder={schemaRowsState.loading ? 'Loading schemas' : 'Select schema'}
+                  value={getSelectedOption(schemaOptions, selectedSchemaId)}
+                  onChange={(item) => {
+                    if (item.value) {
+                      selectSchema(item.value);
+                    }
+                  }}
+                />
+              </Field>
+            )}
+
+            {appConfig.documentSource.enabled && (
+              <Field label="Document" description="Select a document ID returned by the configured query.">
+                <Combobox
+                  loading={documentRowsState.loading || isDocumentLoading}
+                  disabled={!documentOptions.length || Boolean(documentRowsState.error)}
+                  options={documentOptions}
+                  placeholder={documentRowsState.loading ? 'Loading documents' : 'Select document'}
+                  value={getSelectedOption(documentOptions, selectedDocumentId)}
+                  onChange={(item) => {
+                    if (item.value) {
+                      selectDocument(item.value);
+                    }
+                  }}
+                />
+              </Field>
+            )}
+          </div>
+
+          <Stack direction="column" gap={1}>
+            {schemaSourceConfigError && <Alert title="Schema source is not configured" severity="warning">{schemaSourceConfigError}</Alert>}
+            {schemaRowsState.error && <Alert title="Unable to load schemas" severity="error">{schemaRowsState.error}</Alert>}
+            {invalidSchemaParam && <Alert title="Unable to select schema" severity="error">{invalidSchemaParam}</Alert>}
+            {schemaDetailError && <Alert title="Unable to apply schema" severity="error">{schemaDetailError}</Alert>}
+            {documentSourceConfigError && <Alert title="Document source is not configured" severity="warning">{documentSourceConfigError}</Alert>}
+            {documentRowsState.error && <Alert title="Unable to load documents" severity="error">{documentRowsState.error}</Alert>}
+            {invalidDocumentParam && <Alert title="Unable to select document" severity="error">{invalidDocumentParam}</Alert>}
+            {documentDetailError && <Alert title="Unable to apply document" severity="error">{documentDetailError}</Alert>}
+          </Stack>
+        </section>
+      )}
 
       <div className={styles.workspace}>
         <div className={styles.editors}>
@@ -796,6 +1185,24 @@ const getStyles = (theme: GrafanaTheme2) => ({
     fontWeight: theme.typography.fontWeightMedium,
     lineHeight: 1.2,
     margin: 0,
+  }),
+  sourceControls: css({
+    background: theme.colors.background.primary,
+    border: `1px solid ${theme.colors.border.weak}`,
+    borderRadius: theme.shape.radius.default,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: theme.spacing(1.5),
+    padding: theme.spacing(1.5),
+  }),
+  sourceGrid: css({
+    display: 'grid',
+    gap: theme.spacing(2),
+    gridTemplateColumns: 'repeat(2, minmax(240px, 1fr))',
+
+    [theme.breakpoints.down('md')]: {
+      gridTemplateColumns: '1fr',
+    },
   }),
   workspace: css({
     display: 'grid',

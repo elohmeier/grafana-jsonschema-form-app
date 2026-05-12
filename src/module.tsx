@@ -1,12 +1,13 @@
 import React, { Suspense, lazy } from 'react';
 import { AppPlugin, type AppRootProps } from '@grafana/data';
 import { LoadingPlaceholder } from '@grafana/ui';
+import { JsonSchemaFormAppConfig } from './appConfig';
 import type { AppConfigProps } from './components/AppConfig/AppConfig';
 
 const LazyApp = lazy(() => import('./components/App/App'));
 const LazyAppConfig = lazy(() => import('./components/AppConfig/AppConfig'));
 
-const App = (props: AppRootProps) => (
+const App = (props: AppRootProps<JsonSchemaFormAppConfig>) => (
   <Suspense fallback={<LoadingPlaceholder text="" />}>
     <LazyApp {...props} />
   </Suspense>
@@ -18,7 +19,7 @@ const AppConfig = (props: AppConfigProps) => (
   </Suspense>
 );
 
-export const plugin = new AppPlugin<{}>().setRootPage(App).addConfigPage({
+export const plugin = new AppPlugin<JsonSchemaFormAppConfig>().setRootPage(App).addConfigPage({
   title: 'Configuration',
   icon: 'cog',
   body: AppConfig,

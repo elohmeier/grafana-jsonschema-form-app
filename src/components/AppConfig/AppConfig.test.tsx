@@ -24,10 +24,12 @@ describe('Components/AppConfig', () => {
     } as unknown as AppConfigProps;
   });
 
-  test('renders the empty settings state', () => {
+  test('renders the query source settings', () => {
     render(<AppConfig plugin={props.plugin} query={props.query} />);
 
     expect(screen.queryByTestId(testIds.appConfig.container)).toBeInTheDocument();
-    expect(screen.queryByText(/has no required settings/i)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /json schema form configuration/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /document source/i })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /schema source/i })).toBeInTheDocument();
   });
 });

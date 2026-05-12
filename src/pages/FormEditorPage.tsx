@@ -11,7 +11,8 @@ import GrafanaJsonSchemaForm from '../rjsf/GrafanaTheme';
 
 const sampleSchema: RJSFSchema = {
   title: 'Alert routing policy',
-  description: 'A richer sample that exercises nested objects, arrays, enums, oneOf branches, formats, and metadata.',
+  description:
+    'A richer sample that exercises nested objects, arrays, enums, oneOf/anyOf/allOf branches, dependencies, formats, files, secrets, and metadata.',
   type: 'object',
   required: ['name', 'owner', 'severity', 'routing', 'escalation'],
   additionalProperties: {
@@ -34,6 +35,11 @@ const sampleSchema: RJSFSchema = {
       type: 'boolean',
       title: 'Enabled',
       default: true,
+    },
+    internalId: {
+      type: 'string',
+      title: 'Internal ID',
+      default: 'policy-checkout-latency',
     },
     owner: {
       type: 'object',
@@ -133,12 +139,14 @@ const sampleSchema: RJSFSchema = {
               start: {
                 type: 'string',
                 title: 'Start time',
-                pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$',
+                format: 'time',
+                pattern: '^([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$',
               },
               end: {
                 type: 'string',
                 title: 'End time',
-                pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$',
+                format: 'time',
+                pattern: '^([01][0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$',
               },
             },
           },
@@ -249,6 +257,111 @@ const sampleSchema: RJSFSchema = {
         },
       },
     },
+    schedule: {
+      type: 'object',
+      title: 'Schedule',
+      required: ['startsOn', 'reviewAt', 'quietHoursStart'],
+      properties: {
+        startsOn: {
+          type: 'string',
+          title: 'Starts on',
+          format: 'date',
+        },
+        reviewAt: {
+          type: 'string',
+          title: 'Review at',
+          format: 'date-time',
+        },
+        quietHoursStart: {
+          type: 'string',
+          title: 'Quiet hours start',
+          format: 'time',
+        },
+        maintenanceContact: {
+          title: 'Maintenance contact',
+          anyOf: [
+            {
+              title: 'No contact',
+              type: 'null',
+            },
+            {
+              title: 'Email contact',
+              type: 'string',
+              format: 'email',
+            },
+          ],
+        },
+      },
+    },
+    incidentAutomation: {
+      type: 'object',
+      title: 'Incident automation',
+      properties: {
+        createIncident: {
+          type: 'boolean',
+          title: 'Create incident',
+          default: true,
+        },
+      },
+      dependencies: {
+        createIncident: {
+          oneOf: [
+            {
+              title: 'Do not create incidents',
+              properties: {
+                createIncident: {
+                  enum: [false],
+                },
+              },
+            },
+            {
+              title: 'Create incidents',
+              required: ['priority', 'dedupeKey'],
+              properties: {
+                createIncident: {
+                  enum: [true],
+                },
+                priority: {
+                  type: 'string',
+                  title: 'Priority',
+                  enum: ['P1', 'P2', 'P3'],
+                },
+                dedupeKey: {
+                  type: 'string',
+                  title: 'Dedupe key',
+                },
+              },
+            },
+          ],
+        },
+      },
+    },
+    credentials: {
+      type: 'object',
+      title: 'Credentials',
+      properties: {
+        apiToken: {
+          type: 'string',
+          title: 'API token',
+          minLength: 8,
+        },
+        sharedSecret: {
+          type: 'string',
+          title: 'Shared secret',
+        },
+      },
+    },
+    evidence: {
+      type: 'object',
+      title: 'Evidence',
+      properties: {
+        samplePayload: {
+          type: 'string',
+          title: 'Sample payload',
+          format: 'data-url',
+        },
+      },
+    },
     runbook: {
       type: 'object',
       title: 'Runbook',
@@ -282,6 +395,43 @@ const sampleSchema: RJSFSchema = {
         },
       },
     },
+    labels: {
+      title: 'Labels',
+      allOf: [
+        {
+          type: 'object',
+          title: 'Deployment labels',
+          required: ['environment', 'region'],
+          properties: {
+            environment: {
+              type: 'string',
+              title: 'Environment',
+              enum: ['dev', 'staging', 'prod'],
+            },
+            region: {
+              type: 'string',
+              title: 'Region',
+              enum: ['us-east-1', 'us-west-2', 'eu-central-1'],
+            },
+          },
+        },
+        {
+          type: 'object',
+          title: 'Ownership labels',
+          properties: {
+            costCenter: {
+              type: 'string',
+              title: 'Cost center',
+            },
+            dataClassification: {
+              type: 'string',
+              title: 'Data classification',
+              enum: ['public', 'internal', 'confidential', 'restricted'],
+            },
+          },
+        },
+      ],
+    },
     annotations: {
       type: 'object',
       title: 'Annotations',
@@ -293,7 +443,29 @@ const sampleSchema: RJSFSchema = {
 };
 
 const sampleUiSchema: UiSchema = {
-  'ui:order': ['name', 'enabled', 'severity', 'owner', 'routing', 'escalation', 'runbook', 'annotations', '*'],
+  'ui:order': [
+    'name',
+    'internalId',
+    'enabled',
+    'severity',
+    'owner',
+    'routing',
+    'escalation',
+    'schedule',
+    'incidentAutomation',
+    'credentials',
+    'evidence',
+    'runbook',
+    'labels',
+    'annotations',
+    '*',
+  ],
+  internalId: {
+    'ui:widget': 'hidden',
+  },
+  enabled: {
+    'ui:widget': 'switch',
+  },
   severity: {
     'ui:widget': 'radio',
   },
@@ -322,12 +494,53 @@ const sampleUiSchema: UiSchema = {
         weekdays: {
           'ui:placeholder': 'Select weekdays',
         },
+        start: {
+          'ui:widget': 'time',
+        },
+        end: {
+          'ui:widget': 'time',
+        },
       },
     },
   },
   escalation: {
     repeatInterval: {
       'ui:widget': 'range',
+    },
+  },
+  schedule: {
+    startsOn: {
+      'ui:widget': 'date',
+    },
+    reviewAt: {
+      'ui:widget': 'date-time',
+      'ui:options': {
+        showSeconds: true,
+      },
+    },
+    quietHoursStart: {
+      'ui:widget': 'time',
+    },
+  },
+  incidentAutomation: {
+    createIncident: {
+      'ui:widget': 'switch',
+    },
+  },
+  credentials: {
+    apiToken: {
+      'ui:widget': 'password',
+    },
+    sharedSecret: {
+      'ui:widget': 'secret',
+    },
+  },
+  evidence: {
+    samplePayload: {
+      'ui:widget': 'file',
+      'ui:options': {
+        accept: 'application/json',
+      },
     },
   },
   runbook: {
@@ -347,6 +560,7 @@ const sampleFormData = {
   name: 'Checkout latency policy',
   severity: 'critical',
   enabled: true,
+  internalId: 'policy-checkout-latency',
   owner: {
     team: 'payments',
     email: 'payments-oncall@example.com',
@@ -365,8 +579,8 @@ const sampleFormData = {
       {
         name: 'Weekend maintenance',
         weekdays: ['sat', 'sun'],
-        start: '01:00',
-        end: '03:00',
+        start: '01:00:00',
+        end: '03:00:00',
       },
     ],
   },
@@ -390,6 +604,24 @@ const sampleFormData = {
       },
     ],
   },
+  schedule: {
+    startsOn: '2026-06-01',
+    reviewAt: '2026-06-15T09:30:00Z',
+    quietHoursStart: '22:00:00',
+    maintenanceContact: 'maintenance@example.com',
+  },
+  incidentAutomation: {
+    createIncident: true,
+    priority: 'P1',
+    dedupeKey: 'checkout-latency-prod',
+  },
+  credentials: {
+    apiToken: 'example-token',
+    sharedSecret: 'already-configured',
+  },
+  evidence: {
+    samplePayload: 'data:application/json;base64,eyJzZXJ2aWNlIjoiY2hlY2tvdXQiLCJsYXRlbmN5TXMiOjEyMzR9',
+  },
   runbook: {
     summary: 'Checkout latency is above the customer-impacting threshold.',
     remediation: 'Check upstream payment provider latency, recent deploys, queue depth, and checkout database saturation.',
@@ -399,6 +631,12 @@ const sampleFormData = {
         url: 'https://grafana.example.com/d/checkout/checkout-overview',
       },
     ],
+  },
+  labels: {
+    environment: 'prod',
+    region: 'eu-central-1',
+    costCenter: 'cc-payments-042',
+    dataClassification: 'confidential',
   },
   annotations: {
     environment: 'prod',

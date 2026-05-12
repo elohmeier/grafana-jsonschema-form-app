@@ -1,20 +1,27 @@
 import React, { ChangeEvent, FocusEvent } from 'react';
 import { css } from '@emotion/css';
-import { IconName } from '@grafana/data';
+import { dateTime, IconName } from '@grafana/data';
 import {
   Alert,
   Button,
   Checkbox,
   Combobox,
   ComboboxOption,
+  DatePickerWithInput,
+  DateTimePicker,
   Field,
+  FileDropzone,
+  FileDropzoneDefaultChildren,
   IconButton,
   Input,
   MultiCombobox,
   RadioButtonGroup,
+  SecretInput,
   Slider,
   Stack,
+  Switch,
   TextArea,
+  TimeOfDayPicker,
   useStyles2,
 } from '@grafana/ui';
 import { ThemeProps, withTheme } from '@rjsf/core';
@@ -50,10 +57,23 @@ import {
   WidgetProps,
   WrapIfAdditionalTemplateProps,
 } from '@rjsf/utils';
+import { formatJsonSchemaTime } from './time';
 
 type OptionValue = string;
 
 const emptyObject = {};
+
+function toDropzoneAccept(accept: unknown) {
+  if (typeof accept !== 'string') {
+    return undefined;
+  }
+
+  if (accept.includes('/')) {
+    return { [accept]: [] };
+  }
+
+  return accept;
+}
 
 function useThemeStyles() {
   return useStyles2((theme) => ({
@@ -114,6 +134,19 @@ function useThemeStyles() {
       display: 'grid',
       gap: theme.spacing(1),
       gridTemplateColumns: 'minmax(160px, 240px) minmax(0, 1fr) auto',
+    }),
+    fileWidget: css({
+      display: 'flex',
+      flexDirection: 'column',
+      gap: theme.spacing(1),
+    }),
+    fileValue: css({
+      alignItems: 'center',
+      color: theme.colors.text.secondary,
+      display: 'flex',
+      fontSize: theme.typography.bodySmall.fontSize,
+      gap: theme.spacing(1),
+      justifyContent: 'space-between',
     }),
     errorList: css({
       marginBottom: theme.spacing(2),
@@ -213,6 +246,51 @@ function TextareaWidget<T = any, S extends StrictRJSFSchema = RJSFSchema, F exte
   );
 }
 
+function InputWidget<T = any, S extends StrictRJSFSchema = RJSFSchema, F extends FormContextType = any>(
+  props: WidgetProps<T, S, F> & { type?: string }
+) {
+  return <BaseInputTemplate {...props} />;
+}
+
+function PasswordWidget<T = any, S extends StrictRJSFSchema = RJSFSchema, F extends FormContextType = any>(
+  props: WidgetProps<T, S, F>
+) {
+  return <BaseInputTemplate {...props} type="password" autoComplete="new-password" />;
+}
+
+function SecretWidget<T = any, S extends StrictRJSFSchema = RJSFSchema, F extends FormContextType = any>({
+  id,
+  htmlName,
+  value,
+  readonly,
+  disabled,
+  autofocus,
+  placeholder,
+  onChange,
+  onBlur,
+  onFocus,
+  options,
+  rawErrors,
+}: WidgetProps<T, S, F>) {
+  return (
+    <SecretInput
+      id={id}
+      name={htmlName || id}
+      value={value ?? ''}
+      isConfigured={Boolean(value)}
+      readOnly={readonly}
+      disabled={disabled}
+      autoFocus={autofocus}
+      placeholder={placeholder}
+      invalid={Boolean(rawErrors?.length)}
+      onReset={() => onChange(options.emptyValue)}
+      onBlur={(event) => onBlur(id, event.currentTarget.value)}
+      onFocus={(event) => onFocus(id, event.currentTarget.value)}
+      onChange={(event) => onChange(event.currentTarget.value === '' ? options.emptyValue : event.currentTarget.value)}
+    />
+  );
+}
+
 function CheckboxWidget<T = any, S extends StrictRJSFSchema = RJSFSchema, F extends FormContextType = any>({
   id,
   value,
@@ -230,6 +308,29 @@ function CheckboxWidget<T = any, S extends StrictRJSFSchema = RJSFSchema, F exte
       id={id}
       value={Boolean(value)}
       label={hideLabel ? undefined : label}
+      disabled={disabled || readonly}
+      invalid={Boolean(rawErrors?.length)}
+      onChange={(event) => onChange(event.currentTarget.checked)}
+      onBlur={() => onBlur(id, value)}
+      onFocus={() => onFocus(id, value)}
+    />
+  );
+}
+
+function SwitchWidget<T = any, S extends StrictRJSFSchema = RJSFSchema, F extends FormContextType = any>({
+  id,
+  value,
+  readonly,
+  disabled,
+  onChange,
+  onBlur,
+  onFocus,
+  rawErrors,
+}: WidgetProps<T, S, F>) {
+  return (
+    <Switch
+      id={id}
+      value={Boolean(value)}
       disabled={disabled || readonly}
       invalid={Boolean(rawErrors?.length)}
       onChange={(event) => onChange(event.currentTarget.checked)}
@@ -259,6 +360,131 @@ function RangeWidget<T = any, S extends StrictRJSFSchema = RJSFSchema, F extends
       onChange={onChange}
     />
   );
+}
+
+function DateWidget<T = any, S extends StrictRJSFSchema = RJSFSchema, F extends FormContextType = any>({
+  id,
+  value,
+  disabled,
+  readonly,
+  placeholder,
+  onChange,
+  onBlur,
+  onFocus,
+}: WidgetProps<T, S, F>) {
+  return (
+    <DatePickerWithInput
+      id={id}
+      value={value}
+      disabled={disabled || readonly}
+      placeholder={placeholder}
+      closeOnSelect
+      onBlur={() => onBlur(id, value)}
+      onFocus={() => onFocus(id, value)}
+      onChange={(nextValue) =>
+        onChange(nextValue instanceof Date ? dateTime(nextValue).format('YYYY-MM-DD') : nextValue || undefined)
+      }
+    />
+  );
+}
+
+function DateTimeWidget<T = any, S extends StrictRJSFSchema = RJSFSchema, F extends FormContextType = any>({
+  value,
+  disabled,
+  readonly,
+  onChange,
+  options,
+}: WidgetProps<T, S, F>) {
+  return (
+    <DateTimePicker
+      date={value ? dateTime(value) : undefined}
+      clearable
+      showSeconds={Boolean(options.showSeconds)}
+      onChange={(nextValue) => onChange(nextValue ? nextValue.toISOString() : options.emptyValue)}
+      disabledHours={disabled || readonly ? () => Array.from({ length: 24 }, (_, index) => index) : undefined}
+    />
+  );
+}
+
+function TimeWidget<T = any, S extends StrictRJSFSchema = RJSFSchema, F extends FormContextType = any>({
+  id,
+  value,
+  disabled,
+  readonly,
+  placeholder,
+  onChange,
+  options,
+}: WidgetProps<T, S, F>) {
+  const showSeconds = Boolean(options.showSeconds);
+
+  return (
+    <TimeOfDayPicker
+      id={id}
+      value={value ? dateTime(`1970-01-01T${value}`) : undefined}
+      allowEmpty
+      disabled={disabled || readonly}
+      placeholder={placeholder}
+      showSeconds={showSeconds}
+      onChange={(nextValue) => onChange(nextValue ? formatJsonSchemaTime(nextValue, showSeconds) : options.emptyValue)}
+    />
+  );
+}
+
+function FileWidget<T = any, S extends StrictRJSFSchema = RJSFSchema, F extends FormContextType = any>({
+  id,
+  value,
+  disabled,
+  readonly,
+  multiple,
+  onChange,
+  options,
+}: WidgetProps<T, S, F>) {
+  const styles = useThemeStyles();
+  const hasValue = Array.isArray(value) ? value.length > 0 : Boolean(value);
+  const accept = toDropzoneAccept(options.accept);
+  const acceptLabel = typeof options.accept === 'string' ? options.accept : undefined;
+
+  const onLoad = (result: string | ArrayBuffer | null) => {
+    if (typeof result !== 'string') {
+      return;
+    }
+
+    if (multiple) {
+      onChange([...(Array.isArray(value) ? value : []), result]);
+      return;
+    }
+
+    onChange(result);
+  };
+
+  return (
+    <div className={styles.fileWidget}>
+      <FileDropzone
+        id={id}
+        readAs="readAsDataURL"
+        onLoad={onLoad}
+        options={{ accept, disabled: disabled || readonly, multiple: Boolean(multiple) }}
+      >
+        <FileDropzoneDefaultChildren primaryText="Drop a file or click to upload" secondaryText={acceptLabel} />
+      </FileDropzone>
+      {hasValue && (
+        <div className={styles.fileValue}>
+          <span>{Array.isArray(value) ? `${value.length} files encoded` : 'File encoded as data URL'}</span>
+          <Button type="button" size="sm" fill="text" icon="times" onClick={() => onChange(options.emptyValue)}>
+            Clear
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HiddenWidget<T = any, S extends StrictRJSFSchema = RJSFSchema, F extends FormContextType = any>({
+  id,
+  value,
+  onChange,
+}: WidgetProps<T, S, F>) {
+  return <input id={id} type="hidden" value={value ?? ''} onChange={(event) => onChange(event.currentTarget.value)} />;
 }
 
 function RadioWidget<T = any, S extends StrictRJSFSchema = RJSFSchema, F extends FormContextType = any>({
@@ -760,10 +986,40 @@ const grafanaTheme: ThemeProps = {
   widgets: {
     CheckboxWidget,
     CheckboxesWidget: (props) => <SelectWidget {...props} multiple />,
+    DateTimeWidget,
+    DateWidget,
+    EmailWidget: InputWidget,
+    FileWidget,
+    HiddenWidget,
+    PasswordWidget,
     RadioWidget,
     RangeWidget,
+    SecretWidget,
     SelectWidget,
+    SwitchWidget,
     TextareaWidget,
+    TextWidget: InputWidget,
+    TimeWidget,
+    URLWidget: InputWidget,
+    UpDownWidget: InputWidget,
+    checkbox: CheckboxWidget,
+    checkboxes: (props) => <SelectWidget {...props} multiple />,
+    date: DateWidget,
+    'date-time': DateTimeWidget,
+    email: InputWidget,
+    file: FileWidget,
+    hidden: HiddenWidget,
+    password: PasswordWidget,
+    radio: RadioWidget,
+    range: RangeWidget,
+    secret: SecretWidget,
+    select: SelectWidget,
+    switch: SwitchWidget,
+    textarea: TextareaWidget,
+    text: InputWidget,
+    time: TimeWidget,
+    updown: InputWidget,
+    url: InputWidget,
   },
 };
 

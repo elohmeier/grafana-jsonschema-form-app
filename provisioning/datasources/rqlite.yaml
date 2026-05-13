@@ -1,0 +1,12 @@
+apiVersion: 1
+
+datasources:
+  - name: rqlite
+    uid: rqlite-local
+    type: g42-rqlite-datasource
+    access: proxy
+    url: http://host.docker.internal:4001
+    isDefault: true
+    editable: true
+    jsonData:
+      url: http://host.docker.internal:4001

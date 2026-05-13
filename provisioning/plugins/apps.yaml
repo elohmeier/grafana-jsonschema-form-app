@@ -5,4 +5,105 @@ apps:
     org_id: 1
     org_name: 'g42'
     disabled: false
-    jsonData: {}
+    jsonData:
+      defaultFormat: yaml
+      documentSource:
+        enabled: true
+        datasourceUid: rqlite-local
+        idField: id
+        titleField: title
+        jsonField: document
+        # The matching schema id is resolved here so the plugin only has to
+        # follow a hint per row instead of encoding infra-type aliasing in
+        # client code. Match priority:
+        #   1. infra_schema.schema_name = infra_definition.infra_type
+        #   2. infra_schema.schema_name = infra_type with the 'infra_' prefix stripped
+        # Among matches: same api_version, supported, then latest.
+        # Resolve the matching schema id via four ordered subqueries combined
+        # with COALESCE. SQLite/rqlite does not propagate outer-table refs
+        # into ORDER BY of correlated subqueries, so we encode tier priority
+        # at the COALESCE level. All infra-type aliasing rules live here, not
+        # in the plugin.
+        #
+        # Tiers (first non-null wins):
+        #   1. exact name + exact version
+        #   2. legacy name (strip 'infra_') + exact version
+        #   3. legacy name + same major version (highest supported patch)
+        #   4. exact name + same major version (highest supported patch)
+        #
+        # Tier 3 sits above tier 4 because the legacy lineage tracks the
+        # historic vintage of older documents more faithfully than the
+        # canonical (renamed) namespace.
+        listQuery:
+          refId: A
+          editorMode: code
+          format: table
+          rawSql: |
+            SELECT infra_definition.id,
+                   infra_definition.infra_type || '  ·  ' || infra_definition.application
+                     || ' / ' || infra_definition.substage
+                     || '  ·  ' || COALESCE(infra_definition.area, '?')
+                     || '/' || COALESCE(infra_definition.tenant, '?')
+                     || '  —  ' || infra_definition.file_path AS title,
+                   infra_definition.content AS document,
+                   COALESCE(
+                     (SELECT s.id FROM infra_schema s
+                      WHERE s.is_supported = 1
+                        AND s.version = infra_definition.api_version
+                        AND s.schema_name = infra_definition.infra_type
+                      ORDER BY s.is_latest DESC, s.namespace LIMIT 1),
+                     (SELECT s.id FROM infra_schema s
+                      WHERE s.is_supported = 1
+                        AND s.version = infra_definition.api_version
+                        AND substr(infra_definition.infra_type, 1, 6) = 'infra_'
+                        AND s.schema_name = substr(infra_definition.infra_type, 7)
+                      ORDER BY s.is_latest DESC, s.namespace LIMIT 1),
+                     (SELECT s.id FROM infra_schema s
+                      WHERE s.is_supported = 1
+                        AND substr(infra_definition.infra_type, 1, 6) = 'infra_'
+                        AND s.schema_name = substr(infra_definition.infra_type, 7)
+                        AND CAST(substr(s.version || '.', 1, instr(s.version || '.', '.') - 1) AS INTEGER)
+                            = CAST(substr(infra_definition.api_version || '.', 1, instr(infra_definition.api_version || '.', '.') - 1) AS INTEGER)
+                      ORDER BY s.is_latest DESC, s.version DESC LIMIT 1),
+                     (SELECT s.id FROM infra_schema s
+                      WHERE s.is_supported = 1
+                        AND s.schema_name = infra_definition.infra_type
+                        AND CAST(substr(s.version || '.', 1, instr(s.version || '.', '.') - 1) AS INTEGER)
+                            = CAST(substr(infra_definition.api_version || '.', 1, instr(infra_definition.api_version || '.', '.') - 1) AS INTEGER)
+                      ORDER BY s.is_latest DESC, s.version DESC LIMIT 1)
+                   ) AS schema_id
+            FROM infra_definition
+            ORDER BY infra_definition.application, infra_definition.substage,
+                     infra_definition.infra_type, infra_definition.project_path,
+                     infra_definition.file_path
+      schemaSource:
+        enabled: true
+        datasourceUid: rqlite-local
+        idField: id
+        titleField: title
+        jsonField: schema
+        listQuery:
+          refId: A
+          editorMode: code
+          format: table
+          rawSql: |
+            SELECT id,
+                   CASE WHEN is_latest = 1 THEN '★ ' ELSE '  ' END
+                     || namespace || '/' || schema_name || ' v' || version
+                     || CASE
+                          WHEN file_name IN (
+                            schema_name || '.json',
+                            'schema_' || schema_name || '.json'
+                          ) THEN ''
+                          ELSE ' — ' || file_name
+                        END AS title,
+                   namespace,
+                   schema_name,
+                   version,
+                   file_name,
+                   is_supported,
+                   is_latest,
+                   content AS schema
+            FROM infra_schema
+            WHERE is_supported = 1
+            ORDER BY namespace, schema_name, is_latest DESC, version DESC, file_name

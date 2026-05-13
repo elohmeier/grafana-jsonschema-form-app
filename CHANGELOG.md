@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/elohmeier/grafana-jsonschema-form-app/compare/v1.2.0...v1.3.0) (2026-05-13)
+
+
+### Features
+
+* improve schema handling & editor improvements ([56c47da](https://github.com/elohmeier/grafana-jsonschema-form-app/commit/56c47da645ef4b576d4b912bcc204ed4382060fb))
+
 # [1.2.0](https://github.com/elohmeier/grafana-jsonschema-form-app/compare/v1.1.0...v1.2.0) (2026-05-12)
 
 

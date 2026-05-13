@@ -1,15 +1,18 @@
 import { DataQuery } from '@grafana/schema';
 
+import { DocumentFormat } from './documentFormat';
+
 export const DOCUMENT_ID_PARAM = 'documentId';
 export const SCHEMA_ID_PARAM = 'schemaId';
 
 export type QuerySourceKind = 'document' | 'schema';
 
+export const DEFAULT_DOCUMENT_FORMAT: DocumentFormat = 'json';
+
 export interface QueryBackedSourceConfig {
   enabled?: boolean;
   datasourceUid?: string;
   listQuery?: DataQuery;
-  detailQuery?: DataQuery;
   idField?: string;
   titleField?: string;
   jsonField?: string;
@@ -18,6 +21,7 @@ export interface QueryBackedSourceConfig {
 export interface JsonSchemaFormAppConfig {
   documentSource?: QueryBackedSourceConfig;
   schemaSource?: QueryBackedSourceConfig;
+  defaultFormat?: DocumentFormat;
 }
 
 export interface NormalizedQueryBackedSourceConfig extends QueryBackedSourceConfig {
@@ -30,6 +34,7 @@ export interface NormalizedQueryBackedSourceConfig extends QueryBackedSourceConf
 export interface NormalizedJsonSchemaFormAppConfig {
   documentSource: NormalizedQueryBackedSourceConfig;
   schemaSource: NormalizedQueryBackedSourceConfig;
+  defaultFormat: DocumentFormat;
 }
 
 const sourceDefaults: Record<QuerySourceKind, Pick<NormalizedQueryBackedSourceConfig, 'idField' | 'titleField' | 'jsonField'>> = {
@@ -64,6 +69,10 @@ export function normalizeAppConfig(config: JsonSchemaFormAppConfig | undefined):
   return {
     documentSource: normalizeSourceConfig('document', config?.documentSource),
     schemaSource: normalizeSourceConfig('schema', config?.schemaSource),
+    defaultFormat:
+      config?.defaultFormat === 'yaml' || config?.defaultFormat === 'json'
+        ? config.defaultFormat
+        : DEFAULT_DOCUMENT_FORMAT,
   };
 }
 
@@ -72,7 +81,6 @@ export function compactSourceConfig(source: NormalizedQueryBackedSourceConfig): 
     enabled: source.enabled,
     datasourceUid: source.datasourceUid,
     listQuery: source.listQuery,
-    detailQuery: source.detailQuery,
     idField: source.idField,
     titleField: source.titleField,
     jsonField: source.jsonField,
@@ -83,5 +91,6 @@ export function compactAppConfig(config: NormalizedJsonSchemaFormAppConfig): Jso
   return {
     documentSource: compactSourceConfig(config.documentSource),
     schemaSource: compactSourceConfig(config.schemaSource),
+    defaultFormat: config.defaultFormat,
   };
 }

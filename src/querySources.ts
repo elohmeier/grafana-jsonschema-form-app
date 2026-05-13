@@ -4,7 +4,6 @@ import {
   DataQueryRequest,
   DataQueryResponse,
   DataQueryResponseData,
-  ScopedVars,
   dateTime,
 } from '@grafana/data';
 import { getDataSourceSrv } from '@grafana/runtime';
@@ -43,7 +42,7 @@ export async function loadSourceRows(
   }
 
   const response = await runConfiguredQuery(source.datasourceUid, source.listQuery, kind);
-  return extractRows(response, source, !source.detailQuery);
+  return extractRows(response, source);
 }
 
 export async function resolveSourceJson(
@@ -51,30 +50,18 @@ export async function resolveSourceJson(
   kind: QuerySourceKind,
   row: QuerySourceRow
 ): Promise<unknown> {
-  if (!source.detailQuery) {
-    if (typeof row.jsonValue === 'undefined') {
-      throw new Error(`The selected ${kind} row does not include field "${source.jsonField}".`);
-    }
-
-    return parseDocumentValue(row.jsonValue, kind);
+  if (typeof row.jsonValue === 'undefined') {
+    throw new Error(`The selected ${kind} row does not include field "${source.jsonField}".`);
   }
 
-  if (!source.datasourceUid) {
-    throw new Error('Select a data source in the plugin configuration.');
-  }
-
-  const response = await runConfiguredQuery(source.datasourceUid, source.detailQuery, kind, getSelectionScopedVars(kind, row));
-  const value = extractFirstJsonValue(response, source);
-
-  return parseDocumentValue(value, kind);
+  return parseDocumentValue(row.jsonValue, kind);
 }
 
 export function extractRows(
   response: DataQueryResponse,
-  source: Pick<NormalizedQueryBackedSourceConfig, 'idField' | 'titleField' | 'jsonField'>,
-  requireJsonField: boolean
+  source: Pick<NormalizedQueryBackedSourceConfig, 'idField' | 'titleField' | 'jsonField'>
 ): QuerySourceRow[] {
-  const rows = response.data.flatMap((frame) => extractRowsFromFrame(frame, source, requireJsonField));
+  const rows = response.data.flatMap((frame) => extractRowsFromFrame(frame, source));
   const seenIds = new Set<string>();
 
   for (const row of rows) {
@@ -88,26 +75,10 @@ export function extractRows(
   return rows;
 }
 
-function extractFirstJsonValue(
-  response: DataQueryResponse,
-  source: Pick<NormalizedQueryBackedSourceConfig, 'jsonField'>
-): unknown {
-  for (const frame of response.data) {
-    const value = extractJsonValueFromFrame(frame, source.jsonField);
-
-    if (typeof value !== 'undefined') {
-      return value;
-    }
-  }
-
-  throw new Error(`The detail query did not return field "${source.jsonField}".`);
-}
-
 async function runConfiguredQuery(
   datasourceUid: string,
   query: DataQuery,
-  kind: QuerySourceKind,
-  scopedVars: ScopedVars = {}
+  kind: QuerySourceKind
 ): Promise<DataQueryResponse> {
   const datasource = await getDataSourceSrv().get({ uid: datasourceUid });
   const now = dateTime();
@@ -125,7 +96,7 @@ async function runConfiguredQuery(
       },
     },
     requestId: `jsonschema-form-${kind}-${Date.now()}`,
-    scopedVars,
+    scopedVars: {},
     startTime: Date.now(),
     targets: [
       {
@@ -141,44 +112,16 @@ async function runConfiguredQuery(
   return isObservable(response) ? lastValueFrom(response) : response;
 }
 
-function getSelectionScopedVars(kind: QuerySourceKind, row: QuerySourceRow): ScopedVars {
-  const idVariable = kind === 'document' ? 'documentId' : 'schemaId';
-  const scopedVars: ScopedVars = {
-    [idVariable]: {
-      text: row.id,
-      value: row.id,
-    },
-    id: {
-      text: row.id,
-      value: row.id,
-    },
-  };
-
-  for (const [name, value] of Object.entries(row.values)) {
-    if (value === null || typeof value === 'undefined') {
-      continue;
-    }
-
-    scopedVars[name] = {
-      text: String(value),
-      value,
-    };
-  }
-
-  return scopedVars;
-}
-
 function extractRowsFromFrame(
   frame: DataQueryResponseData,
-  source: Pick<NormalizedQueryBackedSourceConfig, 'idField' | 'titleField' | 'jsonField'>,
-  requireJsonField: boolean
+  source: Pick<NormalizedQueryBackedSourceConfig, 'idField' | 'titleField' | 'jsonField'>
 ): QuerySourceRow[] {
   if (isDataFrameLike(frame)) {
-    return extractRowsFromDataFrame(frame, source, requireJsonField);
+    return extractRowsFromDataFrame(frame, source);
   }
 
   if (isTableData(frame)) {
-    return extractRowsFromTableData(frame, source, requireJsonField);
+    return extractRowsFromTableData(frame, source);
   }
 
   return [];
@@ -186,8 +129,7 @@ function extractRowsFromFrame(
 
 function extractRowsFromDataFrame(
   frame: Pick<DataFrame, 'fields' | 'length'>,
-  source: Pick<NormalizedQueryBackedSourceConfig, 'idField' | 'titleField' | 'jsonField'>,
-  requireJsonField: boolean
+  source: Pick<NormalizedQueryBackedSourceConfig, 'idField' | 'titleField' | 'jsonField'>
 ): QuerySourceRow[] {
   const idField = findField(frame.fields, source.idField);
   const titleField = findField(frame.fields, source.titleField) ?? findField(frame.fields, 'title') ?? findField(frame.fields, 'name');
@@ -197,7 +139,7 @@ function extractRowsFromDataFrame(
     throw new Error(`The configured query did not return field "${source.idField}".`);
   }
 
-  if (requireJsonField && !jsonField) {
+  if (!jsonField) {
     throw new Error(`The configured query did not return field "${source.jsonField}".`);
   }
 
@@ -209,7 +151,7 @@ function extractRowsFromDataFrame(
     return {
       id,
       title,
-      jsonValue: jsonField?.values[rowIndex],
+      jsonValue: jsonField.values[rowIndex],
       values,
     };
   });
@@ -217,8 +159,7 @@ function extractRowsFromDataFrame(
 
 function extractRowsFromTableData(
   table: LegacyTableData,
-  source: Pick<NormalizedQueryBackedSourceConfig, 'idField' | 'titleField' | 'jsonField'>,
-  requireJsonField: boolean
+  source: Pick<NormalizedQueryBackedSourceConfig, 'idField' | 'titleField' | 'jsonField'>
 ): QuerySourceRow[] {
   const idIndex = findColumnIndex(table, source.idField);
   const titleIndex = findColumnIndex(table, source.titleField) ?? findColumnIndex(table, 'title') ?? findColumnIndex(table, 'name');
@@ -228,7 +169,7 @@ function extractRowsFromTableData(
     throw new Error(`The configured query did not return field "${source.idField}".`);
   }
 
-  if (requireJsonField && jsonIndex === undefined) {
+  if (jsonIndex === undefined) {
     throw new Error(`The configured query did not return field "${source.jsonField}".`);
   }
 
@@ -240,26 +181,10 @@ function extractRowsFromTableData(
     return {
       id,
       title,
-      jsonValue: jsonIndex === undefined ? undefined : row[jsonIndex],
+      jsonValue: row[jsonIndex],
       values,
     };
   });
-}
-
-function extractJsonValueFromFrame(frame: DataQueryResponseData, jsonFieldName: string): unknown {
-  if (isDataFrameLike(frame)) {
-    const field = findField(frame.fields, jsonFieldName);
-
-    return field?.values[0];
-  }
-
-  if (isTableData(frame)) {
-    const index = findColumnIndex(frame, jsonFieldName);
-
-    return index === undefined ? undefined : frame.rows[0]?.[index];
-  }
-
-  return undefined;
 }
 
 function parseDocumentValue(value: unknown, kind: QuerySourceKind): unknown {

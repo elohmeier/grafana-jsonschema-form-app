@@ -12,17 +12,17 @@ import {
 } from '@grafana/data';
 import { DataQuery } from '@grafana/schema';
 import { DataSourcePicker, getBackendSrv, getDataSourceSrv } from '@grafana/runtime';
-import { Alert, Button, Field, Input, LoadingPlaceholder, Stack, Switch, TextArea, useStyles2 } from '@grafana/ui';
+import { Alert, Button, Field, Input, LoadingPlaceholder, RadioButtonGroup, Stack, Switch, TextArea, useStyles2 } from '@grafana/ui';
 import { lastValueFrom } from 'rxjs';
 
 import {
   JsonSchemaFormAppConfig,
   NormalizedJsonSchemaFormAppConfig,
   NormalizedQueryBackedSourceConfig,
-  QuerySourceKind,
   compactAppConfig,
   normalizeAppConfig,
 } from '../../appConfig';
+import { DocumentFormat, getDocumentFormatLabel } from '../../documentFormat';
 import { testIds } from '../testIds';
 
 export interface AppConfigProps extends PluginConfigPageProps<AppPluginMeta<JsonSchemaFormAppConfig>> {}
@@ -42,7 +42,6 @@ type DataSourceQueryEditorProps = QueryJsonEditorProps & {
 
 type SourceConfigEditorProps = {
   description: string;
-  kind: QuerySourceKind;
   onChange: (source: NormalizedQueryBackedSourceConfig) => void;
   title: string;
   value: NormalizedQueryBackedSourceConfig;
@@ -247,16 +246,15 @@ function DataSourceQueryEditor({
   );
 }
 
-function SourceConfigEditor({ description, kind, onChange, title, value }: SourceConfigEditorProps) {
+function SourceConfigEditor({ description, onChange, title, value }: SourceConfigEditorProps) {
   const styles = useStyles2(getStyles);
-  const scopedIdName = kind === 'document' ? 'documentId' : 'schemaId';
   const updateSource = useCallback(
     (patch: Partial<NormalizedQueryBackedSourceConfig>) => onChange({ ...value, ...patch }),
     [onChange, value]
   );
   const onDatasourceChange = useCallback(
     (datasource: DataSourceInstanceSettings) =>
-      updateSource({ datasourceUid: datasource.uid, detailQuery: undefined, listQuery: undefined }),
+      updateSource({ datasourceUid: datasource.uid, listQuery: undefined }),
     [updateSource]
   );
   const onFieldChange = useCallback(
@@ -282,7 +280,7 @@ function SourceConfigEditor({ description, kind, onChange, title, value }: Sourc
 
       {value.enabled && (
         <Stack direction="column" gap={2}>
-          <Field label="Data source" description="The configured datasource runs the list and optional detail queries.">
+          <Field label="Data source" description="The configured datasource runs the list query for this source.">
             <DataSourcePicker
               current={value.datasourceUid ?? null}
               noDefault
@@ -296,20 +294,10 @@ function SourceConfigEditor({ description, kind, onChange, title, value }: Sourc
             datasourceUid={value.datasourceUid}
             defaultRefId="A"
             label="List query"
-            description="Returns selectable rows. Required fields are id/title plus the content field when no detail query is configured."
+            description="Returns selectable rows. Required fields are id/title plus the content field."
             placeholder={'{\n  "refId": "A"\n}'}
             value={value.listQuery}
             onChange={(listQuery) => updateSource({ listQuery })}
-          />
-
-          <DataSourceQueryEditor
-            datasourceUid={value.datasourceUid}
-            defaultRefId="B"
-            label="Detail query"
-            description={`Optional. Runs after selection and receives $${scopedIdName} as a scoped variable. If empty, the list row content field is used.`}
-            placeholder={`{\n  "refId": "B"\n}`}
-            value={value.detailQuery}
-            onChange={(detailQuery) => updateSource({ detailQuery })}
           />
 
           <div className={styles.fieldGrid}>
@@ -345,6 +333,20 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
     setDraftConfig((current) => ({ ...current, schemaSource }));
     setSaveState(null);
   }, []);
+
+  const updateDefaultFormat = useCallback((defaultFormat: DocumentFormat) => {
+    setDraftConfig((current) => ({ ...current, defaultFormat }));
+    setSaveState(null);
+  }, []);
+
+  const formatOptions = useMemo(
+    () =>
+      (['json', 'yaml'] as const).map((format) => ({
+        label: getDocumentFormatLabel(format),
+        value: format,
+      })),
+    []
+  );
 
   const reset = useCallback(() => {
     setDraftConfig(savedConfig);
@@ -395,8 +397,18 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
 
       {saveState && <Alert title={saveState.message} severity={saveState.severity} />}
 
+      <Field
+        label="Default document format"
+        description="Format used when opening the editor; users can still toggle within a session."
+      >
+        <RadioButtonGroup
+          options={formatOptions}
+          value={draftConfig.defaultFormat}
+          onChange={updateDefaultFormat}
+        />
+      </Field>
+
       <SourceConfigEditor
-        kind="document"
         title="Document source"
         description="Provides selectable JSON or YAML documents by ID. URL parameters can select only IDs returned by this query."
         value={draftConfig.documentSource}
@@ -404,7 +416,6 @@ const AppConfig = ({ plugin }: AppConfigProps) => {
       />
 
       <SourceConfigEditor
-        kind="schema"
         title="Schema source"
         description="Provides selectable JSON or YAML schemas by ID. Arbitrary schema URLs are not accepted."
         value={draftConfig.schemaSource}

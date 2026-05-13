@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { css } from '@emotion/css';
-import { GrafanaTheme2 } from '@grafana/data';
+import { AppEvents, GrafanaTheme2, type NavModelItem } from '@grafana/data';
+import { getAppEvents, PluginPage } from '@grafana/runtime';
 import {
   Alert,
   Button,
@@ -8,6 +9,7 @@ import {
   CodeEditor,
   Combobox,
   Field,
+  LoadingPlaceholder,
   Stack,
   Tab,
   TabsBar,
@@ -38,21 +40,14 @@ import {
   normalizeAppConfig,
 } from '../appConfig';
 
-const LEFT_TAB_PARAM = 'leftTab';
-const RIGHT_TAB_PARAM = 'rightTab';
+const TAB_PARAM = 'tab';
 
-type LeftTab = 'schema' | 'ui';
-type RightTab = 'form' | 'data';
+type EditorTab = 'form' | 'data' | 'schema' | 'ui';
 
-const LEFT_TABS: LeftTab[] = ['schema', 'ui'];
-const RIGHT_TABS: RightTab[] = ['form', 'data'];
+const TABS: EditorTab[] = ['form', 'data', 'schema', 'ui'];
 
-function parseLeftTab(value: string | null): LeftTab {
-  return (LEFT_TABS as string[]).includes(value ?? '') ? (value as LeftTab) : 'schema';
-}
-
-function parseRightTab(value: string | null): RightTab {
-  return (RIGHT_TABS as string[]).includes(value ?? '') ? (value as RightTab) : 'form';
+function parseTab(value: string | null): EditorTab {
+  return (TABS as string[]).includes(value ?? '') ? (value as EditorTab) : 'form';
 }
 import { testIds } from '../components/testIds';
 import { DocumentFormat, getDocumentFormatLabel, parseDocument, stringifyDocument } from '../documentFormat';
@@ -708,7 +703,7 @@ function DocumentEditorPanel({
   format,
   value,
   onValidChange,
-  height = '420px',
+  height = '75vh',
   headerExtras,
 }: DocumentEditorPanelProps) {
   const styles = useStyles2(getStyles);
@@ -867,13 +862,11 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const documentParam = searchParams.get(DOCUMENT_ID_PARAM) ?? undefined;
   const schemaParam = searchParams.get(SCHEMA_ID_PARAM) ?? undefined;
-  const leftTab = parseLeftTab(searchParams.get(LEFT_TAB_PARAM));
-  const rightTab = parseRightTab(searchParams.get(RIGHT_TAB_PARAM));
+  const tab = parseTab(searchParams.get(TAB_PARAM));
   const [documentFormat, setDocumentFormat] = useState<DocumentFormat>(appConfig.defaultFormat);
   const [schema, setSchema] = useState<RJSFSchema>(sampleSchema);
   const [uiSchema, setUiSchema] = useState<UiSchema>(sampleUiSchema);
   const [formData, setFormData] = useState<any>(sampleFormData);
-  const [lastSubmit, setLastSubmit] = useState<{ formData: unknown } | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
   const [documentRowsState, setDocumentRowsState] = useState<SourceRowsState>(initialSourceRowsState);
   const [schemaRowsState, setSchemaRowsState] = useState<SourceRowsState>(initialSourceRowsState);
@@ -904,6 +897,19 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
     schemaParam && schemaRowsState.loaded && !schemaRowsState.loading && !schemaRowMap.has(schemaParam)
       ? `Schema "${schemaParam}" was not returned by the configured query.`
       : null;
+  const documentPending =
+    appConfig.documentSource.enabled &&
+    Boolean(documentParam) &&
+    selectedDocumentId !== documentParam &&
+    !documentDetailError &&
+    !invalidDocumentParam;
+  const schemaPending =
+    appConfig.schemaSource.enabled &&
+    Boolean(schemaParam) &&
+    selectedSchemaId !== schemaParam &&
+    !schemaDetailError &&
+    !invalidSchemaParam;
+  const hasPendingSelection = documentPending || schemaPending;
 
   const setSourceParam = useCallback(
     (key: string, value: string | undefined) => {
@@ -927,26 +933,13 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
     setSearchParams(nextParams, { replace: true });
   }, [searchParams, setSearchParams]);
 
-  const setLeftTab = useCallback(
-    (next: LeftTab) => {
-      const nextParams = new URLSearchParams(searchParams);
-      if (next === 'schema') {
-        nextParams.delete(LEFT_TAB_PARAM);
-      } else {
-        nextParams.set(LEFT_TAB_PARAM, next);
-      }
-      setSearchParams(nextParams, { replace: true });
-    },
-    [searchParams, setSearchParams]
-  );
-
-  const setRightTab = useCallback(
-    (next: RightTab) => {
+  const setTab = useCallback(
+    (next: EditorTab) => {
       const nextParams = new URLSearchParams(searchParams);
       if (next === 'form') {
-        nextParams.delete(RIGHT_TAB_PARAM);
+        nextParams.delete(TAB_PARAM);
       } else {
-        nextParams.set(RIGHT_TAB_PARAM, next);
+        nextParams.set(TAB_PARAM, next);
       }
       setSearchParams(nextParams, { replace: true });
     },
@@ -1031,8 +1024,7 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
 
   const onFormChange = useCallback(({ formData }: IChangeEvent) => {
     setFormData(formData);
-    setLastSubmit(null);
-  }, [setFormData, setLastSubmit]);
+  }, [setFormData]);
 
   const selectDocument = useCallback(
     async (id: string, updateUrl = true) => {
@@ -1053,7 +1045,6 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
 
       try {
         setFormData(await resolveSourceJson(appConfig.documentSource, 'document', row));
-        setLastSubmit(null);
       } catch (err) {
         setDocumentDetailError(getErrorMessage(err));
       } finally {
@@ -1066,7 +1057,6 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
       setDocumentDetailError,
       setFormData,
       setIsDocumentLoading,
-      setLastSubmit,
       setSelectedDocumentId,
       setSourceParam,
     ]
@@ -1097,7 +1087,6 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
         }
 
         setSchema(nextSchema as RJSFSchema);
-        setLastSubmit(null);
       } catch (err) {
         setSchemaDetailError(getErrorMessage(err));
       } finally {
@@ -1108,7 +1097,6 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
       appConfig.schemaSource,
       schemaRowMap,
       setIsSchemaLoading,
-      setLastSubmit,
       setSchema,
       setSchemaDetailError,
       setSelectedSchemaId,
@@ -1212,7 +1200,6 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
     setSchema(sampleSchema);
     setUiSchema(sampleUiSchema);
     setFormData(sampleFormData);
-    setLastSubmit(null);
     setSelectedDocumentId(undefined);
     setSelectedSchemaId(undefined);
     setDocumentDetailError(null);
@@ -1222,7 +1209,6 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
     clearSourceParams,
     setDocumentDetailError,
     setFormData,
-    setLastSubmit,
     setSchema,
     setSchemaDetailError,
     setSelectedDocumentId,
@@ -1230,28 +1216,32 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
     setUiSchema,
   ]);
 
-  return (
-    <div className={styles.page} data-testid={testIds.editor.container}>
-      <div className={styles.header}>
-        <h1 className={styles.title}>JSON Schema Form</h1>
-        <Stack gap={1}>
-          {hasSourceControls && (
-            <Button
-              type="button"
-              variant="secondary"
-              fill="outline"
-              icon="sync"
-              onClick={() => setReloadToken((current) => current + 1)}
-            >
-              Refresh
-            </Button>
-          )}
-          <Button type="button" variant="secondary" fill="outline" icon="history" onClick={reset}>
-            Reset
-          </Button>
-        </Stack>
-      </div>
+  const selectedDocLabel = selectedDocumentId ? documentRowMap.get(selectedDocumentId)?.title : undefined;
+  const pageNav: NavModelItem = selectedDocLabel
+    ? { text: selectedDocLabel, subTitle: 'Form editor' }
+    : { text: 'Form editor' };
+  const pageActions = (
+    <Stack gap={1}>
+      {hasSourceControls && (
+        <Button
+          type="button"
+          variant="secondary"
+          fill="outline"
+          icon="sync"
+          onClick={() => setReloadToken((current) => current + 1)}
+        >
+          Refresh
+        </Button>
+      )}
+      <Button type="button" variant="secondary" fill="outline" icon="history" onClick={reset}>
+        Reset
+      </Button>
+    </Stack>
+  );
 
+  return (
+    <PluginPage pageNav={pageNav} actions={pageActions}>
+      <div className={styles.page} data-testid={testIds.editor.container}>
       {hasSourceControls && (
         <section className={styles.sourceControls}>
           <div className={styles.sourceGrid}>
@@ -1303,87 +1293,68 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
         </section>
       )}
 
-      <div className={styles.workspace}>
-        <section className={styles.column}>
-          <TabsBar>
-            <Tab
-              label="Schema"
-              active={leftTab === 'schema'}
-              onChangeTab={() => setLeftTab('schema')}
+      <section className={styles.workspace}>
+        <TabsBar>
+          <Tab label="Form" active={tab === 'form'} onChangeTab={() => setTab('form')} />
+          <Tab label="Data" active={tab === 'data'} onChangeTab={() => setTab('data')} />
+          <Tab label="Schema" active={tab === 'schema'} onChangeTab={() => setTab('schema')} />
+          <Tab label="UI schema" active={tab === 'ui'} onChangeTab={() => setTab('ui')} />
+        </TabsBar>
+        {hasPendingSelection && (
+          <div className={styles.loading}>
+            <LoadingPlaceholder text="Loading selection..." />
+          </div>
+        )}
+        {!hasPendingSelection && tab === 'form' && (
+          <div className={styles.preview} data-testid={testIds.editor.preview}>
+            <GrafanaJsonSchemaForm
+              // Remount on document/schema swap so RJSF cannot merge a previous
+              // selection's formData with the new schema's defaults.
+              key={`${selectedSchemaId ?? 'none'}::${selectedDocumentId ?? 'none'}`}
+              schema={schema}
+              uiSchema={uiSchema}
+              formData={formData}
+              validator={validator}
+              liveValidate
+              showErrorList="top"
+              onChange={onFormChange}
+              onSubmit={() => {
+                getAppEvents().publish({
+                  type: AppEvents.alertSuccess.name,
+                  payload: ['Form is valid'],
+                });
+              }}
             />
-            <Tab
-              label="UI schema"
-              active={leftTab === 'ui'}
-              onChangeTab={() => setLeftTab('ui')}
-            />
-          </TabsBar>
-          {leftTab === 'schema' && (
-            <DocumentEditorPanel
-              format="json"
-              value={schema}
-              onValidChange={setSchema}
-              data-testid={testIds.editor.schemaEditor}
-            />
-          )}
-          {leftTab === 'ui' && (
-            <DocumentEditorPanel
-              format="json"
-              value={uiSchema}
-              onValidChange={setUiSchema}
-              data-testid={testIds.editor.uiSchemaEditor}
-            />
-          )}
-        </section>
-
-        <section className={styles.column}>
-          <TabsBar>
-            <Tab
-              label="Form"
-              active={rightTab === 'form'}
-              onChangeTab={() => setRightTab('form')}
-            />
-            <Tab
-              label="Data"
-              active={rightTab === 'data'}
-              onChangeTab={() => setRightTab('data')}
-            />
-          </TabsBar>
-          {rightTab === 'form' && (
-            <div className={styles.preview} data-testid={testIds.editor.preview}>
-              <Stack direction="column" gap={2}>
-                {lastSubmit && (
-                  <Alert title="Submitted" severity="success">
-                    <pre className={styles.submitOutput}>{stringifyDocument(lastSubmit.formData, documentFormat)}</pre>
-                  </Alert>
-                )}
-                <GrafanaJsonSchemaForm
-                  // Remount on document/schema swap so RJSF cannot merge a previous
-                  // selection's formData with the new schema's defaults.
-                  key={`${selectedSchemaId ?? 'none'}::${selectedDocumentId ?? 'none'}`}
-                  schema={schema}
-                  uiSchema={uiSchema}
-                  formData={formData}
-                  validator={validator}
-                  liveValidate
-                  showErrorList="top"
-                  onChange={onFormChange}
-                  onSubmit={(event) => setLastSubmit({ formData: event.formData })}
-                />
-              </Stack>
-            </div>
-          )}
-          {rightTab === 'data' && (
-            <DocumentEditorPanel
-              format={documentFormat}
-              value={formData}
-              onValidChange={setFormData}
-              data-testid={testIds.editor.formDataEditor}
-              headerExtras={<FormatToggle value={documentFormat} onChange={setDocumentFormat} />}
-            />
-          )}
-        </section>
+          </div>
+        )}
+        {!hasPendingSelection && tab === 'data' && (
+          <DocumentEditorPanel
+            format={documentFormat}
+            value={formData}
+            onValidChange={setFormData}
+            data-testid={testIds.editor.formDataEditor}
+            headerExtras={<FormatToggle value={documentFormat} onChange={setDocumentFormat} />}
+          />
+        )}
+        {!hasPendingSelection && tab === 'schema' && (
+          <DocumentEditorPanel
+            format="json"
+            value={schema}
+            onValidChange={setSchema}
+            data-testid={testIds.editor.schemaEditor}
+          />
+        )}
+        {!hasPendingSelection && tab === 'ui' && (
+          <DocumentEditorPanel
+            format="json"
+            value={uiSchema}
+            onValidChange={setUiSchema}
+            data-testid={testIds.editor.uiSchemaEditor}
+          />
+        )}
+      </section>
       </div>
-    </div>
+    </PluginPage>
   );
 }
 
@@ -1393,25 +1364,6 @@ const getStyles = (theme: GrafanaTheme2) => ({
     flexDirection: 'column',
     gap: theme.spacing(2),
     minHeight: '100%',
-    padding: theme.spacing(2),
-  }),
-  header: css({
-    alignItems: 'center',
-    display: 'flex',
-    gap: theme.spacing(2),
-    justifyContent: 'space-between',
-
-    [theme.breakpoints.down('sm')]: {
-      alignItems: 'flex-start',
-      flexDirection: 'column',
-    },
-  }),
-  title: css({
-    color: theme.colors.text.primary,
-    fontSize: theme.typography.h2.fontSize,
-    fontWeight: theme.typography.fontWeightMedium,
-    lineHeight: 1.2,
-    margin: 0,
   }),
   formatLabel: css({
     color: theme.colors.text.secondary,
@@ -1437,19 +1389,23 @@ const getStyles = (theme: GrafanaTheme2) => ({
     },
   }),
   workspace: css({
-    display: 'grid',
-    gap: theme.spacing(2),
-    gridTemplateColumns: 'minmax(360px, 1fr) minmax(380px, 1fr)',
-    minHeight: 0,
-
-    [theme.breakpoints.down('lg')]: {
-      gridTemplateColumns: '1fr',
-    },
-  }),
-  column: css({
     display: 'flex',
     flexDirection: 'column',
+    minHeight: 0,
     minWidth: 0,
+  }),
+  loading: css({
+    alignItems: 'center',
+    background: theme.colors.background.primary,
+    border: `1px solid ${theme.colors.border.weak}`,
+    borderRadius: theme.shape.radius.default,
+    borderTop: 'none',
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    display: 'flex',
+    justifyContent: 'center',
+    minHeight: '200px',
+    padding: theme.spacing(2),
   }),
   editorPanel: css({
     background: theme.colors.background.primary,
@@ -1502,11 +1458,5 @@ const getStyles = (theme: GrafanaTheme2) => ({
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-  }),
-  submitOutput: css({
-    margin: 0,
-    overflowX: 'auto',
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word',
   }),
 });

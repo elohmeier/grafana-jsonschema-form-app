@@ -16,8 +16,8 @@ import {
   useStyles2,
   type ComboboxOption,
 } from '@grafana/ui';
-import { IChangeEvent } from '@rjsf/core';
-import { RJSFSchema, UiSchema } from '@rjsf/utils';
+import type { IChangeEvent } from '@rjsf/core';
+import type { RJSFSchema, UiSchema } from '@rjsf/utils';
 import { customizeValidator } from '@rjsf/validator-ajv8';
 import Ajv2020 from 'ajv/dist/2020';
 import draft06MetaSchema from 'ajv/dist/refs/json-schema-draft-06.json';
@@ -825,6 +825,10 @@ const initialSourceRowsState: SourceRowsState = {
   rows: [],
 };
 
+function createEmptyFormData() {
+  return {};
+}
+
 function toSelectOptions(rows: QuerySourceRow[]): Array<ComboboxOption<string>> {
   return rows.map((row) => ({
     label: row.title,
@@ -909,7 +913,7 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
     selectedSchemaId !== schemaParam &&
     !schemaDetailError &&
     !invalidSchemaParam;
-  const hasPendingSelection = documentPending || schemaPending;
+  const hasPendingSelection = documentPending || schemaPending || isDocumentLoading || isSchemaLoading;
 
   const setSourceParam = useCallback(
     (key: string, value: string | undefined) => {
@@ -1038,6 +1042,7 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
       setSelectedDocumentId(id);
       setDocumentDetailError(null);
       setIsDocumentLoading(true);
+      setFormData(createEmptyFormData());
 
       if (updateUrl) {
         setSourceParam(DOCUMENT_ID_PARAM, id);
@@ -1329,6 +1334,7 @@ export default function FormEditorPage({ config }: FormEditorPageProps) {
         )}
         {!hasPendingSelection && tab === 'data' && (
           <DocumentEditorPanel
+            key={`data:${selectedDocumentId ?? 'sample'}`}
             format={documentFormat}
             value={formData}
             onValidChange={setFormData}

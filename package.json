@@ -70,7 +70,7 @@
     "@grafana/data": "12.4.2",
     "@grafana/i18n": "12.4.2",
     "@grafana/runtime": "12.4.2",
-    "@grafana/schema": "12.4.2",
+    "@grafana/schema": "13.0.1",
     "@grafana/ui": "12.4.2",
     "@rjsf/core": "6.5.2",
     "@rjsf/utils": "6.5.2",

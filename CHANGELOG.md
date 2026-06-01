@@ -1,3 +1,10 @@
+## [1.4.1](https://github.com/elohmeier/grafana-jsonschema-form-app/compare/v1.4.0...v1.4.1) (2026-06-01)
+
+
+### Bug Fixes
+
+* clear document data while switching documents ([789a1b1](https://github.com/elohmeier/grafana-jsonschema-form-app/commit/789a1b1a405d257f02e3a640d234132c20cc7dcf))
+
 # [1.4.0](https://github.com/elohmeier/grafana-jsonschema-form-app/compare/v1.3.0...v1.4.0) (2026-05-13)
 
 
